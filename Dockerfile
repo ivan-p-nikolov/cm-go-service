@@ -5,6 +5,10 @@ ENV PROJECT=cm-go-service
 COPY . /${PROJECT}/
 WORKDIR /${PROJECT}
 
+# Copy OpenAPI data to be accessable by the binary in the finished image
+COPY ./api /artifacts/
+
+# Build
 RUN BUILDINFO_PACKAGE="github.com/Financial-Times/service-status-go/buildinfo." \
   && VERSION="version=$(git describe --tag --always 2> /dev/null)" \
   && DATETIME="dateTime=$(date -u +%Y%m%d%H%M%S)" \
