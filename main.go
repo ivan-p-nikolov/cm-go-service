@@ -8,14 +8,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gorilla/mux"
-	cli "github.com/jawher/mow.cli"
-	metrics "github.com/rcrowley/go-metrics"
-
+	"github.com/Financial-Times/api-endpoint"
 	fthealth "github.com/Financial-Times/go-fthealth/v1_1"
-	logger "github.com/Financial-Times/go-logger/v2"
+	"github.com/Financial-Times/go-logger/v2"
 	"github.com/Financial-Times/http-handlers-go/v2/httphandlers"
 	status "github.com/Financial-Times/service-status-go/httphandlers"
+	"github.com/gorilla/mux"
+	cli "github.com/jawher/mow.cli"
+	"github.com/rcrowley/go-metrics"
 )
 
 const (
@@ -58,6 +58,13 @@ func main() {
 		EnvVar: "LOG_LEVEL",
 	})
 
+	apiYml := app.String(cli.StringOpt{
+		Name:   "api-yml",
+		Value:  "./api.yml",
+		Desc:   "Location of the OpenAPI YML file.",
+		EnvVar: "API_YML",
+	})
+
 	log := logger.NewUPPLogger(*appName, *logLevel)
 
 	app.Action = func() {
@@ -65,7 +72,7 @@ func main() {
 
 		healthService := NewHealthService(*appSystemCode, *appName, appDescription)
 
-		router := registerEndpoints(healthService, log)
+		router := registerEndpoints(healthService, *apiYml, log)
 
 		server := newHTTPServer(*port, router)
 		go startHTTPServer(server, log)
@@ -81,13 +88,23 @@ func main() {
 	}
 }
 
-func registerEndpoints(healthService *HealthService, log *logger.UPPLogger) http.Handler {
+func registerEndpoints(healthService *HealthService, apiPath string, log *logger.UPPLogger) http.Handler {
 	serveMux := http.NewServeMux()
 
 	// register supervisory endpoint that does not require logging and metrics collection
 	serveMux.HandleFunc("/__health", fthealth.Handler(healthService.Health()))
 	serveMux.HandleFunc(status.GTGPath, status.NewGoodToGoHandler(healthService.GTG))
 	serveMux.HandleFunc(status.BuildInfoPath, status.BuildInfoHandler)
+
+	if apiPath != "" {
+		apiEndpoint, err := api.NewAPIEndpointForFile(apiPath)
+		if err != nil {
+			log.WithError(err).WithField("file", apiPath).
+				Warn("Failed to serve the API Endpoint for this service. Please validate the file exists, and that it fits the OpenAPI specification.")
+		} else {
+			serveMux.HandleFunc(api.DefaultPath, apiEndpoint.ServeHTTP)
+		}
+	}
 
 	// add services router and register endpoints specific to this service only
 	servicesRouter := mux.NewRouter()
